@@ -1,14 +1,33 @@
 import pandas as pd
 import os
 
-FILE = "data/open_positions.csv"
+# ==========================================
+# PATHS
+# ==========================================
+
+DATA_DIR = "data"
+
+OPEN_FILE = os.path.join(
+    DATA_DIR,
+    "open_positions.csv"
+)
+
+# ==========================================
+# CREAR CARPETA
+# ==========================================
+
+os.makedirs(
+    DATA_DIR,
+    exist_ok=True
+)
 
 # ==========================================
 # LOAD
 # ==========================================
+
 def load_open_positions():
 
-    if not os.path.exists(FILE):
+    if not os.path.exists(OPEN_FILE):
 
         return pd.DataFrame(columns=[
 
@@ -20,18 +39,23 @@ def load_open_positions():
 
         ])
 
-    return pd.read_csv(FILE)
+    return pd.read_csv(OPEN_FILE)
 
 # ==========================================
 # SAVE
 # ==========================================
+
 def save_open_positions(df):
 
-    df.to_csv(FILE, index=False)
+    df.to_csv(
+        OPEN_FILE,
+        index=False
+    )
 
 # ==========================================
 # ADD
 # ==========================================
+
 def add_position(
 
     ticker,
@@ -46,7 +70,7 @@ def add_position(
 
     new = pd.DataFrame([{
 
-        "Ticker": ticker,
+        "Ticker": ticker.upper(),
         "Buy": buy,
         "Stop": stop,
         "Target": target,
@@ -54,13 +78,17 @@ def add_position(
 
     }])
 
-    df = pd.concat([df, new])
+    df = pd.concat(
+        [df, new],
+        ignore_index=True
+    )
 
     save_open_positions(df)
 
 # ==========================================
 # CLOSE
 # ==========================================
+
 def close_position(
 
     ticker,
@@ -77,16 +105,18 @@ def close_position(
     ].iloc[0]
 
     pnl = (
+
         sell_price - row["Buy"]
+
     ) * row["Shares"]
 
     add_closed_trade(
 
-        ticker,
-        row["Buy"],
-        sell_price,
-        row["Shares"],
-        pnl
+        ticker=ticker,
+        buy=row["Buy"],
+        sell=sell_price,
+        shares=row["Shares"],
+        pnl=pnl
 
     )
 
