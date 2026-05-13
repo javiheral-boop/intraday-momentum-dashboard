@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-
+from streamlit_autorefresh import st_autorefresh
 from scanner_intraday import scan_intraday
 from scanner_swing import scan_swing
 
@@ -23,6 +23,11 @@ st.set_page_config(
 )
 
 st.title("🚀 Momentum Trading Dashboard")
+
+st_autorefresh(
+    interval=60000,
+    key="market_refresh"
+)
 
 # ==========================================
 # TABS
