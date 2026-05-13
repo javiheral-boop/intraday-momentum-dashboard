@@ -87,11 +87,24 @@ def get_universe():
 
     europa = WATCHLIST_EUROPE
 
-    return list(
-        set(
-            usa + europa
-        )
-    )
+    return list(set(
+
+    usa[:150] +
+
+    [
+
+        "NVDA","SMCI","PLTR","COHR",
+        "ADI","AVGO","MRVL","MU",
+        "ARM","TSLA","META","AAPL",
+        "MSFT","AMZN","GOOGL",
+        "CRWD","PANW","SNOW",
+        "NET","DDOG","SHOP",
+        "MSTR","COIN","RKLB"
+
+    ]
+
+    + europa
+    ))
 
 # ==========================================
 # ATR
@@ -291,7 +304,7 @@ def scan_swing():
 
             max_prev = (
                 df["High"]
-                .iloc[-20:-1]
+                .iloc[-6:-1]
                 .max()
             )
 
