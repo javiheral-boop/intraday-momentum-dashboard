@@ -1,205 +1,590 @@
-import yfinance as yf
+import streamlit as st
 import pandas as pd
+
+from streamlit_autorefresh import st_autorefresh
+
+from scanner_intraday import scan_intraday
+from scanner_swing import scan_swing
+
+from portfolio import (
+    load_open_positions,
+    add_position,
+    close_position
+)
+
+from journal import (
+    load_closed_positions
+)
 
 # ==========================================
 # CONFIG
 # ==========================================
-INTERVAL = "1m"
-PERIOD = "1d"
 
-MIN_CHANGE = 0.008
-VOL_MULTIPLIER = 1.5
+st.set_page_config(
 
-WATCHLIST = [
+    page_title="Momentum Trading Dashboard",
 
-    "NVDA",
-    "TSLA",
-    "AMD",
-    "PLTR",
-    "META",
-    "AAPL",
-    "MSFT",
-    "AMZN",
-    "NFLX"
+    layout="wide"
 
-]
+)
 
 # ==========================================
-# CLEAN
+# AUTO REFRESH
 # ==========================================
-def clean_df(df):
 
-    if df is None or df.empty:
-        return pd.DataFrame()
+st_autorefresh(
 
-    df = df.dropna()
+    interval=30000,
 
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.droplevel(-1)
+    key="market_refresh"
 
-    return df
+)
 
 # ==========================================
-# DESCARGA
+# TITULO
 # ==========================================
-def descargar(ticker):
 
-    try:
-
-        df = yf.download(
-            ticker,
-            interval=INTERVAL,
-            period=PERIOD,
-            progress=False
-        )
-
-        return clean_df(df)
-
-    except:
-
-        return pd.DataFrame()
+st.title(
+    "🚀 Momentum Trading Dashboard"
+)
 
 # ==========================================
-# DETECTAR LIDER
+# TABS
 # ==========================================
-def es_lider(df):
 
-    try:
+tab1, tab2, tab3, tab4 = st.tabs([
 
-        if len(df) < 30:
-            return False
+    "⚡ Intradía",
+    "📈 Swing",
+    "💼 Posiciones Abiertas",
+    "📊 P&L"
 
-        open_price = float(df["Open"].iloc[0])
+])
 
-        current_price = float(
-            df["Close"].iloc[-1]
-        )
+# ==========================================
+# TAB 1 - INTRADIA
+# ==========================================
 
-        change = (
-            current_price - open_price
-        ) / open_price
+with tab1:
 
-        if change < MIN_CHANGE:
-            return False
+    st.header(
+        "⚡ Recomendaciones Intradía"
+    )
 
-        vol_actual = float(
-            df["Volume"].iloc[-15:].sum()
-        )
+    # ======================================
+    # SESSION STATE
+    # ======================================
 
-        vol_media = (
-            float(
-                df["Volume"]
-                .rolling(30)
-                .mean()
-                .iloc[-1]
-            ) * 15
-        )
+    if "intraday_running" not in st.session_state:
 
-        if vol_actual < (
-            vol_media * VOL_MULTIPLIER
+        st.session_state.intraday_running = False
+
+    if "intraday_results" not in st.session_state:
+
+        st.session_state.intraday_results = pd.DataFrame()
+
+    # ======================================
+    # BOTONES
+    # ======================================
+
+    col1, col2 = st.columns(2)
+
+    # ======================================
+    # START
+    # ======================================
+
+    with col1:
+
+        if st.button(
+            "▶️ Iniciar Escaneo"
         ):
-            return False
 
-        return True
+            st.session_state.intraday_running = True
 
-    except:
+    # ======================================
+    # STOP
+    # ======================================
 
-        return False
+    with col2:
+
+        if st.button(
+            "⏹️ Detener Escaneo"
+        ):
+
+            st.session_state.intraday_running = False
+
+    # ======================================
+    # INFO
+    # ======================================
+
+    if st.session_state.intraday_running:
+
+        st.success(
+            "🟢 Scanner activo | Refresh 30s"
+        )
+
+    else:
+
+        st.warning(
+            "🔴 Scanner detenido"
+        )
+
+    # ======================================
+    # ESCANEO
+    # ======================================
+
+    if st.session_state.intraday_running:
+
+        with st.spinner(
+
+            "Escaneando mercado..."
+
+        ):
+
+            df_intraday = scan_intraday()
+
+            st.session_state.intraday_results = (
+                df_intraday
+            )
+
+        if not df_intraday.empty:
+
+            st.success(
+
+                f"🔥 Setups encontrados: {len(df_intraday)}"
+
+            )
+
+        else:
+
+            st.warning(
+
+                "⚠️ No hay setups actualmente"
+
+            )
+
+    # ======================================
+    # MOSTRAR RESULTADOS
+    # ======================================
+
+    if not st.session_state.intraday_results.empty:
+
+        df_show = (
+            st.session_state.intraday_results
+        )
+
+        # ==================================
+        # ORDEN COLUMNAS
+        # ==================================
+
+        columnas = [
+
+            "Ticker",
+
+            "Hora Señal",
+
+            "Minutos",
+
+            "Estado",
+
+            "Entrada",
+
+            "Stop",
+
+            "Target",
+
+            "RR",
+
+            "Cambio %",
+
+            "Score"
+
+        ]
+
+        columnas_existentes = [
+
+            c for c in columnas
+
+            if c in df_show.columns
+
+        ]
+
+        df_show = df_show[
+            columnas_existentes
+        ]
+
+        # ==================================
+        # STYLE
+        # ==================================
+
+        def color_estado(val):
+
+            if "FRESH" in str(val):
+
+                return (
+                    "background-color: #0d4f2f;"
+                    "color: white;"
+                )
+
+            elif "ACTIVE" in str(val):
+
+                return (
+                    "background-color: #7a5c00;"
+                    "color: white;"
+                )
+
+            elif "LATE" in str(val):
+
+                return (
+                    "background-color: #7a0000;"
+                    "color: white;"
+                )
+
+            return ""
+
+        # ==================================
+        # TABLA
+        # ==================================
+
+        st.dataframe(
+
+            df_show
+            .style
+            .map(
+                color_estado,
+                subset=["Estado"]
+            ),
+
+            use_container_width=True,
+
+            hide_index=True
+
+        )
+
+    else:
+
+        st.info(
+
+            "No hay setups actualmente"
+
+        )
 
 # ==========================================
-# SETUPS
+# TAB 2 - SWING
 # ==========================================
-def detectar_setup(df):
 
-    try:
+with tab2:
 
-        if len(df) < 30:
-            return None
+    st.header(
+        "📈 Recomendaciones Swing"
+    )
 
-        opening = df.iloc[:15]
+    if st.button(
+        "🔄 Escanear Swing"
+    ):
 
-        orb_high = float(
-            opening["High"].max()
-        )
+        with st.spinner(
 
-        orb_low = float(
-            opening["Low"].min()
-        )
+            "Buscando oportunidades swing..."
 
-        precio = float(
-            df["Close"].iloc[-1]
-        )
+        ):
 
-        if precio <= orb_high:
-            return None
+            df_swing = scan_swing()
 
-        # STOP
-        stop = max(
-            orb_low,
-            precio * 0.98
-        )
+        if not df_swing.empty:
 
-        risk = precio - stop
+            st.success(
 
-        if risk <= 0:
-            return None
+                f"📈 Oportunidades encontradas: {len(df_swing)}"
 
-        target = precio + (
-            risk * 2
-        )
+            )
 
-        return {
+            st.dataframe(
 
-            "entrada": round(precio, 2),
+                df_swing,
 
-            "stop": round(stop, 2),
+                use_container_width=True,
 
-            "target": round(target, 2)
+                hide_index=True
 
-        }
+            )
 
-    except:
+        else:
 
-        return None
+            st.warning(
+
+                "⚠️ No hay setups swing"
+
+            )
 
 # ==========================================
-# MAIN SCAN
+# TAB 3 - POSICIONES ABIERTAS
 # ==========================================
-def scan_market():
 
-    resultados = []
+with tab3:
 
-    for ticker in WATCHLIST:
+    st.header(
+        "💼 Gestión de Posiciones"
+    )
 
-        try:
+    # ======================================
+    # NUEVA POSICION
+    # ======================================
 
-            df = descargar(ticker)
+    with st.form("new_position"):
 
-            if df.empty:
-                continue
+        ticker = st.text_input(
+            "Ticker"
+        )
 
-            if not es_lider(df):
-                continue
+        buy_price = st.number_input(
+            "Precio Compra",
+            min_value=0.0
+        )
 
-            setup = detectar_setup(df)
+        stop = st.number_input(
+            "Stop Loss",
+            min_value=0.0
+        )
 
-            if setup is None:
-                continue
+        target = st.number_input(
+            "Target",
+            min_value=0.0
+        )
 
-            resultados.append({
+        shares = st.number_input(
 
-                "Ticker": ticker,
+            "Acciones",
 
-                "Entrada": setup["entrada"],
+            min_value=1,
 
-                "Stop": setup["stop"],
+            step=1
 
-                "Target": setup["target"]
+        )
 
-            })
+        submit = st.form_submit_button(
+            "➕ Añadir Posición"
+        )
 
-        except:
+        if submit:
 
-            continue
+            add_position(
 
-    return pd.DataFrame(resultados)
+                ticker,
+
+                buy_price,
+
+                stop,
+
+                target,
+
+                shares
+
+            )
+
+            st.success(
+                "✅ Posición añadida"
+            )
+
+    # ======================================
+    # POSICIONES ABIERTAS
+    # ======================================
+
+    st.subheader(
+        "📋 Posiciones Abiertas"
+    )
+
+    open_df = load_open_positions()
+
+    if not open_df.empty:
+
+        st.dataframe(
+
+            open_df,
+
+            use_container_width=True,
+
+            hide_index=True
+
+        )
+
+    else:
+
+        st.info(
+            "No hay posiciones abiertas"
+        )
+
+    # ======================================
+    # CERRAR POSICION
+    # ======================================
+
+    st.subheader(
+        "❌ Cerrar Posición"
+    )
+
+    if not open_df.empty:
+
+        selected = st.selectbox(
+
+            "Seleccionar ticker",
+
+            open_df["Ticker"]
+
+        )
+
+        sell_price = st.number_input(
+
+            "Precio Venta",
+
+            min_value=0.0
+
+        )
+
+        close_btn = st.button(
+            "Cerrar Trade"
+        )
+
+        if close_btn:
+
+            close_position(
+
+                selected,
+
+                sell_price
+
+            )
+
+            st.success(
+                "✅ Trade cerrado"
+            )
+
+# ==========================================
+# TAB 4 - PNL
+# ==========================================
+
+with tab4:
+
+    st.header(
+        "📊 Histórico y P&L"
+    )
+
+    closed_df = load_closed_positions()
+
+    if not closed_df.empty:
+
+        total_pnl = closed_df["PnL"].sum()
+
+        wins = closed_df[
+            closed_df["PnL"] > 0
+        ]
+
+        losses = closed_df[
+            closed_df["PnL"] <= 0
+        ]
+
+        winrate = (
+
+            len(wins)
+
+            / len(closed_df)
+
+        ) * 100
+
+        avg_win = (
+            wins["PnL"].mean()
+            if not wins.empty
+            else 0
+        )
+
+        avg_loss = (
+            losses["PnL"].mean()
+            if not losses.empty
+            else 0
+        )
+
+        # ==================================
+        # METRICAS
+        # ==================================
+
+        col1, col2, col3, col4 = st.columns(4)
+
+        col1.metric(
+
+            "💰 P&L Total",
+
+            round(total_pnl, 2)
+
+        )
+
+        col2.metric(
+
+            "🎯 Win Rate",
+
+            f"{round(winrate,2)}%"
+
+        )
+
+        col3.metric(
+
+            "📈 Trades",
+
+            len(closed_df)
+
+        )
+
+        col4.metric(
+
+            "⚖️ Avg Trade",
+
+            round(
+                closed_df["PnL"].mean(),
+                2
+            )
+
+        )
+
+        # ==================================
+        # EXTRA STATS
+        # ==================================
+
+        st.subheader(
+            "📊 Estadísticas"
+        )
+
+        col5, col6 = st.columns(2)
+
+        col5.metric(
+
+            "🏆 Avg Win",
+
+            round(avg_win, 2)
+
+        )
+
+        col6.metric(
+
+            "💥 Avg Loss",
+
+            round(avg_loss, 2)
+
+        )
+
+        # ==================================
+        # TABLA
+        # ==================================
+
+        st.dataframe(
+
+            closed_df,
+
+            use_container_width=True,
+
+            hide_index=True
+
+        )
+
+    else:
+
+        st.info(
+            "No hay trades cerrados"
+        )
