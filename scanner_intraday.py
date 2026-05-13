@@ -1,3 +1,5 @@
+# scanner_intraday.py
+
 import yfinance as yf
 import pandas as pd
 import streamlit as st
@@ -21,17 +23,20 @@ PERIOD = "1d"
 # FILTROS
 # ==========================================
 
-# Movimiento mínimo intradía
 MIN_CHANGE = 0.0025
-
-# RVOL más flexible
 VOL_MULTIPLIER = 0.9
 
-# Pullback tolerancia
 PULLBACK_TOLERANCE = 0.004
 
-# Máxima extensión desde breakout
 MAX_EXTENSION = 0.03
+
+# ==========================================
+# MEMORIA SEÑALES
+# ==========================================
+
+if "signal_memory" not in st.session_state:
+
+    st.session_state.signal_memory = {}
 
 # ==========================================
 # WATCHLIST USA
@@ -39,25 +44,17 @@ MAX_EXTENSION = 0.03
 
 WATCHLIST_PRIORITY_USA = [
 
-    # MAG7
     "NVDA","TSLA","AMD","META","AAPL","MSFT",
-    "AMZN","GOOGL",
-
-    # AI / SEMIS
-    "SMCI","ARM","AVGO","MRVL","MU","QCOM",
-    "COHR","ADI","ANET","ASML","LRCX",
-    "KLAC","AMAT","ON","MCHP","NXPI",
-
-    # HIGH BETA
-    "PLTR","AI","SOUN","APP","AFRM",
-    "RKLB","IONQ","TEM","SOFI","HOOD",
-    "RBLX","SHOP","SNOW","NET","DDOG",
-    "ZS","CRWD","PANW","MSTR","COIN",
-
-    # CONSUMER / MOMENTUM
-    "NFLX","CELH","CVNA","DKNG","UBER",
-    "LYFT","LULU","DIS","BA","PYPL",
-    "ADBE","INTC"
+    "AMZN","GOOGL","PLTR","SMCI","ARM",
+    "AVGO","MRVL","MU","QCOM","COHR",
+    "ADI","ANET","ASML","LRCX","KLAC",
+    "AMAT","ON","MCHP","NXPI","AI",
+    "SOUN","APP","AFRM","RKLB","IONQ",
+    "TEM","SOFI","HOOD","RBLX","SHOP",
+    "SNOW","NET","DDOG","ZS","CRWD",
+    "PANW","MSTR","COIN","NFLX","CELH",
+    "CVNA","DKNG","UBER","LYFT","LULU",
+    "DIS","BA","PYPL","ADBE","INTC"
 
 ]
 
@@ -67,38 +64,29 @@ WATCHLIST_PRIORITY_USA = [
 
 WATCHLIST_EUROPE = [
 
-    # España
     "SAN.MC","BBVA.MC","ITX.MC","IBE.MC",
     "REP.MC","FER.MC","ACS.MC","AMS.MC",
     "GRF.MC","AENA.MC",
 
-    # Alemania
     "SAP.DE","SIE.DE","ALV.DE","BMW.DE",
     "BAS.DE","IFX.DE","DB1.DE","VOW3.DE",
     "MBG.DE","DTE.DE","EOAN.DE",
 
-    # Francia
     "MC.PA","OR.PA","TTE.PA","AIR.PA",
     "BNP.PA","KER.PA","RMS.PA","SU.PA",
     "DG.PA","CAP.PA","AI.PA",
 
-    # Holanda
     "ASML.AS","AD.AS","INGA.AS",
     "ASM.AS","MT.AS","PHIA.AS",
 
-    # Italia
     "ENI.MI","ISP.MI",
 
-    # Bélgica
     "UCB.BR","ABI.BR","ARGX.BR",
 
-    # Suiza
     "NESN.SW","ROG.SW",
 
-    # UK
     "ULVR.L",
 
-    # Dinamarca
     "NOVO-B.CO"
 
 ]
@@ -145,14 +133,12 @@ def get_sp500_tickers():
 
         ]
 
-    except Exception as e:
-
-        print("ERROR SP500:", e)
+    except:
 
         return WATCHLIST_PRIORITY_USA
 
 # ==========================================
-# UNIVERSO DINAMICO
+# UNIVERSO SEGUN HORA
 # ==========================================
 
 def get_market_tickers():
@@ -169,8 +155,6 @@ def get_market_tickers():
 
     if 9 <= hora < 16:
 
-        print("🌍 MODO EUROPA")
-
         return WATCHLIST_EUROPE
 
     # ======================================
@@ -179,11 +163,9 @@ def get_market_tickers():
 
     elif 16 <= hora <= 23:
 
-        print("🇺🇸 MODO USA")
-
         sp500 = get_sp500_tickers()
 
-        universo = list(
+        return list(
 
             set(
 
@@ -194,10 +176,6 @@ def get_market_tickers():
             )
 
         )
-
-        return universo
-
-    print("⏸️ MERCADO CERRADO")
 
     return []
 
@@ -227,13 +205,9 @@ def descargar(ticker):
 
         )
 
-        df = clean_df(df)
+        return clean_df(df)
 
-        return df
-
-    except Exception as e:
-
-        print(f"ERROR DESCARGA {ticker}: {e}")
+    except:
 
         return pd.DataFrame()
 
@@ -241,19 +215,11 @@ def descargar(ticker):
 # FILTRO LIDER
 # ==========================================
 
-def es_lider(df, ticker=""):
+def es_lider(df):
 
     try:
 
-        if df.empty:
-
-            print(f"{ticker} vacío")
-
-            return False
-
         if len(df) < 30:
-
-            print(f"{ticker} pocos datos")
 
             return False
 
@@ -266,7 +232,7 @@ def es_lider(df, ticker=""):
         )
 
         # ==================================
-        # CHANGE
+        # CAMBIO %
         # ==================================
 
         change = (
@@ -274,10 +240,6 @@ def es_lider(df, ticker=""):
         ) / open_price
 
         if change < MIN_CHANGE:
-
-            print(
-                f"{ticker} cambio insuficiente"
-            )
 
             return False
 
@@ -306,8 +268,6 @@ def es_lider(df, ticker=""):
             vol_media * VOL_MULTIPLIER
         ):
 
-            print(f"{ticker} sin RVOL")
-
             return False
 
         # ==================================
@@ -324,8 +284,6 @@ def es_lider(df, ticker=""):
         )
 
         if current_price < ma20:
-
-            print(f"{ticker} bajo MA20")
 
             return False
 
@@ -345,15 +303,11 @@ def es_lider(df, ticker=""):
 
         if green < 3:
 
-            print(f"{ticker} momentum débil")
-
             return False
 
         return True
 
-    except Exception as e:
-
-        print(f"ERROR LIDER {ticker}: {e}")
+    except:
 
         return False
 
@@ -361,7 +315,7 @@ def es_lider(df, ticker=""):
 # DETECTAR SETUP
 # ==========================================
 
-def detectar_setup(df, ticker=""):
+def detectar_setup(df):
 
     try:
 
@@ -393,8 +347,6 @@ def detectar_setup(df, ticker=""):
 
         if precio <= orb_high:
 
-            print(f"{ticker} no breakout")
-
             return None
 
         # ==================================
@@ -406,8 +358,6 @@ def detectar_setup(df, ticker=""):
         ) / orb_high
 
         if extension > MAX_EXTENSION:
-
-            print(f"{ticker} extendido")
 
             return None
 
@@ -441,6 +391,44 @@ def detectar_setup(df, ticker=""):
             target - precio
         ) / risk
 
+        # ==================================
+        # SCORE
+        # ==================================
+
+        score = 0
+
+        # Momentum
+        score += min(
+            extension * 100 * 8,
+            25
+        )
+
+        # Calidad riesgo
+        score += min(
+            risk * 10,
+            25
+        )
+
+        # RR
+        score += min(
+            rr * 15,
+            30
+        )
+
+        # Cercanía breakout
+        distance_from_orb = (
+            precio - orb_high
+        ) / orb_high
+
+        score += max(
+            0,
+            20 - (
+                distance_from_orb * 1000
+            )
+        )
+
+        score = round(score, 1)
+
         return {
 
             "Entrada": round(precio, 2),
@@ -454,13 +442,13 @@ def detectar_setup(df, ticker=""):
             "Cambio %": round(
                 extension * 100,
                 2
-            )
+            ),
+
+            "Score": score
 
         }
 
-    except Exception as e:
-
-        print(f"ERROR SETUP {ticker}: {e}")
+    except:
 
         return None
 
@@ -472,40 +460,81 @@ def procesar_ticker(ticker):
 
     try:
 
-        print(f"🔎 {ticker}")
-
         df = descargar(ticker)
 
         if df.empty:
 
             return None
 
-        if not es_lider(df, ticker):
+        if not es_lider(df):
 
             return None
 
-        setup = detectar_setup(
-            df,
-            ticker
-        )
+        setup = detectar_setup(df)
 
         if setup is None:
 
             return None
 
-        print(f"🔥 SETUP {ticker}")
+        # ==================================
+        # TIMESTAMP SEÑAL
+        # ==================================
+
+        now = datetime.now(
+            pytz.timezone("Europe/Madrid")
+        )
+
+        signal_memory = (
+            st.session_state.signal_memory
+        )
+
+        if ticker not in signal_memory:
+
+            signal_memory[ticker] = now
+
+        signal_time = signal_memory[ticker]
+
+        minutes_live = int(
+
+            (
+                now - signal_time
+            ).total_seconds() / 60
+
+        )
+
+        # ==================================
+        # ESTADO
+        # ==================================
+
+        if minutes_live <= 5:
+
+            status = "🔥 FRESH"
+
+        elif minutes_live <= 15:
+
+            status = "⚠️ ACTIVE"
+
+        else:
+
+            status = "❌ LATE"
 
         return {
 
             "Ticker": ticker,
 
+            "Hora Señal": signal_time.strftime(
+                "%H:%M:%S"
+            ),
+
+            "Minutos": minutes_live,
+
+            "Estado": status,
+
             **setup
 
         }
 
-    except Exception as e:
-
-        print(f"ERROR {ticker}: {e}")
+    except:
 
         return None
 
@@ -522,14 +551,6 @@ def scan_intraday():
     if not tickers:
 
         return pd.DataFrame()
-
-    print(
-        f"🚀 ESCANEANDO {len(tickers)} TICKERS"
-    )
-
-    # ======================================
-    # ESCANEO PARALELO
-    # ======================================
 
     with ThreadPoolExecutor(
         max_workers=30
@@ -556,36 +577,36 @@ def scan_intraday():
 
                     resultados.append(result)
 
-            except Exception as e:
+            except:
 
-                print("ERROR FUTURE:", e)
-
-    # ======================================
-    # DATAFRAME
-    # ======================================
+                continue
 
     df = pd.DataFrame(resultados)
 
     if df.empty:
 
-        print("⚠️ SIN SETUPS")
-
         return df
 
     # ======================================
-    # SORT
+    # ORDEN FINAL
     # ======================================
 
     df = df.sort_values(
 
-        by=["RR", "Cambio %"],
+        by=[
 
-        ascending=False
+            "Score",
+            "Minutos"
 
-    )
+        ],
 
-    print(
-        f"✅ SETUPS ENCONTRADOS: {len(df)}"
+        ascending=[
+
+            False,
+            True
+
+        ]
+
     )
 
     return df
