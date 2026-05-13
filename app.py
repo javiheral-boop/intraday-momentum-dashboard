@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
+
 from streamlit_autorefresh import st_autorefresh
+
 from scanner_intraday import scan_intraday
 from scanner_swing import scan_swing
 
@@ -21,13 +23,11 @@ st.set_page_config(
     page_title="Momentum Trading Dashboard",
     layout="wide"
 )
-
-st.title("🚀 Momentum Trading Dashboard")
-
 st_autorefresh(
-    interval=60000,
+    interval=30000,
     key="market_refresh"
 )
+st.title("🚀 Momentum Trading Dashboard")
 
 # ==========================================
 # TABS
@@ -48,17 +48,86 @@ with tab1:
 
     st.header("⚡ Recomendaciones Intradía")
 
-    if st.button("🔄 Escanear Intradía"):
+    # ======================================
+    # SESSION STATE
+    # ======================================
 
-        with st.spinner("Escaneando mercado intradía..."):
+    if "intraday_running" not in st.session_state:
+
+        st.session_state.intraday_running = False
+
+    if "intraday_results" not in st.session_state:
+
+        st.session_state.intraday_results = pd.DataFrame()
+
+    # ======================================
+    # BOTONES
+    # ======================================
+
+    col1, col2 = st.columns(2)
+
+    # ======================================
+    # START
+    # ======================================
+
+    with col1:
+
+        if st.button("▶️ Iniciar Escaneo"):
+
+            st.session_state.intraday_running = True
+
+    # ======================================
+    # STOP
+    # ======================================
+
+    with col2:
+
+        if st.button("⏹️ Detener Escaneo"):
+
+            st.session_state.intraday_running = False
+
+    # ======================================
+    # LOOP ESCANEO
+    # ======================================
+
+    if st.session_state.intraday_running:
+
+        with st.spinner(
+
+            "Escaneando mercado..."
+
+        ):
 
             df_intraday = scan_intraday()
 
-        st.success(f"Setups encontrados: {len(df_intraday)}")
+            st.session_state.intraday_results = df_intraday
+
+        st.success(
+
+            f"Setups encontrados: {len(df_intraday)}"
+
+        )
+
+    # ======================================
+    # MOSTRAR RESULTADOS
+    # ======================================
+
+    if not st.session_state.intraday_results.empty:
 
         st.dataframe(
-            df_intraday,
+
+            st.session_state.intraday_results,
+
             use_container_width=True
+
+        )
+
+    else:
+
+        st.info(
+
+            "No hay setups actualmente"
+
         )
 
 # ==========================================
