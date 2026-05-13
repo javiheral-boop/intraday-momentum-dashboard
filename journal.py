@@ -1,14 +1,33 @@
 import pandas as pd
 import os
 
-FILE = "data/closed_positions.csv"
+# ==========================================
+# PATHS
+# ==========================================
+
+DATA_DIR = "data"
+
+CLOSED_FILE = os.path.join(
+    DATA_DIR,
+    "closed_positions.csv"
+)
+
+# ==========================================
+# CREAR CARPETA
+# ==========================================
+
+os.makedirs(
+    DATA_DIR,
+    exist_ok=True
+)
 
 # ==========================================
 # LOAD
 # ==========================================
+
 def load_closed_positions():
 
-    if not os.path.exists(FILE):
+    if not os.path.exists(CLOSED_FILE):
 
         return pd.DataFrame(columns=[
 
@@ -20,18 +39,23 @@ def load_closed_positions():
 
         ])
 
-    return pd.read_csv(FILE)
+    return pd.read_csv(CLOSED_FILE)
 
 # ==========================================
 # SAVE
 # ==========================================
+
 def save_closed_positions(df):
 
-    df.to_csv(FILE, index=False)
+    df.to_csv(
+        CLOSED_FILE,
+        index=False
+    )
 
 # ==========================================
 # ADD
 # ==========================================
+
 def add_closed_trade(
 
     ticker,
@@ -50,10 +74,13 @@ def add_closed_trade(
         "Buy": buy,
         "Sell": sell,
         "Shares": shares,
-        "PnL": round(pnl,2)
+        "PnL": round(pnl, 2)
 
     }])
 
-    df = pd.concat([df, new])
+    df = pd.concat(
+        [df, new],
+        ignore_index=True
+    )
 
     save_closed_positions(df)
