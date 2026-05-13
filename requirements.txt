@@ -1,4 +1,6 @@
 streamlit
 pandas
 yfinance
+numpy
 requests
+streamlit-autorefresh
