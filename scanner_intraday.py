@@ -210,7 +210,6 @@ def es_lider(df):
     try:
 
         if len(df) < 20:
-
             return False
 
         open_price = float(
@@ -221,56 +220,37 @@ def es_lider(df):
             df["Close"].iloc[-1]
         )
 
+        # Cambio diario
         change = (
             current_price - open_price
         ) / open_price
 
-        if change < MIN_CHANGE:
-
+        if change < 0.003:
             return False
 
-        # ==================================
-        # RVOL
-        # ==================================
+        # Momentum últimos minutos
+        ultimos = df["Close"].iloc[-5:]
 
-        vol_actual = float(
-            df["Volume"].iloc[-10:].sum()
-        )
+        green = 0
 
-        vol_media = (
+        for i in range(1, len(ultimos)):
 
-            float(
+            if ultimos.iloc[i] > ultimos.iloc[i - 1]:
 
-                df["Volume"]
-                .rolling(20)
-                .mean()
-                .iloc[-1]
+                green += 1
 
-            ) * 10
-
-        )
-
-        if vol_actual < (
-            vol_media * VOL_MULTIPLIER
-        ):
-
+        if green < 3:
             return False
 
-        # ==================================
         # MA20
-        # ==================================
-
         ma20 = float(
-
             df["Close"]
             .rolling(20)
             .mean()
             .iloc[-1]
-
         )
 
-        if current_price < ma20 * 0.995:
-
+        if current_price < ma20:
             return False
 
         return True
@@ -288,76 +268,39 @@ def detectar_setup(df):
     try:
 
         if len(df) < 20:
-
             return None
-
-        opening = df.iloc[:15]
-
-        orb_high = float(
-            opening["High"].max()
-        )
-
-        orb_low = float(
-            opening["Low"].min()
-        )
 
         precio = float(
             df["Close"].iloc[-1]
         )
 
-        # ==================================
-        # ROMPIMIENTO RECIENTE
-        # ==================================
-
-        recientes = df.iloc[-5:]
-
-        breakout_recent = False
-
-        for close in recientes["Close"]:
-
-            if float(close) > orb_high:
-
-                breakout_recent = True
-
-                break
-
-        if not breakout_recent:
-
-            return None
-
-        # ==================================
-        # EXTENSION
-        # ==================================
-
-        extension = (
-            precio - orb_high
-        ) / orb_high
-
-        if extension > MAX_EXTENSION:
-
-            return None
-
-        # ==================================
-        # STOP
-        # ==================================
-
-        stop = max(
-
-            orb_low,
-
-            precio * 0.985
-
+        high_20 = float(
+            df["High"]
+            .iloc[-20:]
+            .max()
         )
+
+        low_20 = float(
+            df["Low"]
+            .iloc[-20:]
+            .min()
+        )
+
+        # Cerca de máximos
+        distance_high = (
+            high_20 - precio
+        ) / high_20
+
+        if distance_high > 0.01:
+            return None
+
+        # Stop dinámico
+        stop = low_20
 
         risk = precio - stop
 
         if risk <= 0:
-
             return None
-
-        # ==================================
-        # TARGET
-        # ==================================
 
         target = precio + (
             risk * 2
@@ -367,48 +310,14 @@ def detectar_setup(df):
             target - precio
         ) / risk
 
-        # ==================================
-        # SCORE
-        # ==================================
+        # Score
+        momentum = (
+            precio - df["Close"].iloc[-10]
+        ) / df["Close"].iloc[-10]
 
-        score = 0
-
-        # Cambio %
-        score += min(
-            extension * 100 * 10,
-            35
-        )
-
-        # RR
-        score += min(
-            rr * 20,
-            30
-        )
-
-        # Momentum reciente
-        ultimos = recientes["Close"]
-
-        momentum_score = 0
-
-        for i in range(1, len(ultimos)):
-
-            if ultimos.iloc[i] > ultimos.iloc[i - 1]:
-
-                momentum_score += 1
-
-        score += momentum_score * 7
-
-        # Cercanía breakout
-        distance = abs(
-            precio - orb_high
-        ) / orb_high
-
-        score += max(
-            0,
-            20 - distance * 1000
-        )
-
-        score = round(score, 1)
+        score = (
+            momentum * 1000
+        ) + (rr * 20)
 
         return {
 
@@ -421,18 +330,18 @@ def detectar_setup(df):
             "RR": round(rr, 2),
 
             "Cambio %": round(
-                extension * 100,
+                momentum * 100,
                 2
             ),
 
-            "Score": score
+            "Score": round(score, 1)
 
         }
 
     except:
 
         return None
-
+        
 # ==========================================
 # PROCESAR
 # ==========================================
