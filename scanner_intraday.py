@@ -519,15 +519,115 @@ def procesar_ticker(ticker):
 # MAIN
 # ==========================================
 
+def procesar_ticker_debug(ticker):
+
+    try:
+
+        df = descargar(ticker)
+
+        if df.empty:
+
+            return None
+
+        # DATA OK
+        data_ok = {
+            "estado": "data_ok"
+        }
+
+        if not es_lider(df):
+
+            return data_ok
+
+        # LIDER
+        lider = {
+            "estado": "lider"
+        }
+
+        setup = detectar_setup(df)
+
+        if setup is None:
+
+            return lider
+
+        # SETUP REAL
+        now = datetime.now(
+            pytz.timezone("Europe/Madrid")
+        )
+
+        signal_memory = (
+            st.session_state.signal_memory
+        )
+
+        if ticker not in signal_memory:
+
+            signal_memory[ticker] = now
+
+        signal_time = signal_memory[ticker]
+
+        minutes_live = int(
+
+            (
+                now - signal_time
+            ).total_seconds() / 60
+
+        )
+
+        if minutes_live <= 5:
+
+            status = "🔥 FRESH"
+
+        elif minutes_live <= 15:
+
+            status = "⚠️ ACTIVE"
+
+        else:
+
+            status = "❌ LATE"
+
+        return {
+
+            "estado": "setup",
+
+            "data": {
+
+                "Ticker": ticker,
+
+                "Hora Señal": signal_time.strftime(
+                    "%H:%M:%S"
+                ),
+
+                "Minutos": minutes_live,
+
+                "Estado": status,
+
+                **setup
+
+            }
+
+        }
+
+    except Exception as e:
+
+        print(f"❌ ERROR {ticker}: {e}")
+
+        return None
+
 def scan_intraday():
 
     resultados = []
 
     tickers = get_market_tickers()
 
+    print(f"\n🌍 Total tickers: {len(tickers)}")
+
     if not tickers:
 
+        print("❌ No hay tickers")
         return pd.DataFrame()
+
+    total_ok_data = 0
+    total_lider = 0
+    total_setup = 0
 
     with ThreadPoolExecutor(
         max_workers=40
@@ -536,7 +636,7 @@ def scan_intraday():
         futures = {
 
             executor.submit(
-                procesar_ticker,
+                procesar_ticker_debug,
                 ticker
             ): ticker
 
@@ -546,17 +646,30 @@ def scan_intraday():
 
         for future in as_completed(futures):
 
-            try:
+            result = future.result()
 
-                result = future.result()
-
-                if result is not None:
-
-                    resultados.append(result)
-
-            except:
-
+            if result is None:
                 continue
+
+            estado = result["estado"]
+
+            if estado == "data_ok":
+                total_ok_data += 1
+
+            elif estado == "lider":
+                total_lider += 1
+
+            elif estado == "setup":
+
+                total_setup += 1
+
+                resultados.append(
+                    result["data"]
+                )
+
+    print(f"✅ Datos OK: {total_ok_data}")
+    print(f"🔥 Líderes: {total_lider}")
+    print(f"🎯 Setups: {total_setup}")
 
     df = pd.DataFrame(resultados)
 
@@ -564,22 +677,9 @@ def scan_intraday():
 
         return df
 
-    df = df.sort_values(
-
-        by=[
-
-            "Score",
-            "Minutos"
-
-        ],
-
-        ascending=[
-
-            False,
-            True
-
-        ]
-
+    return df.sort_values(
+        by=["Score", "Minutos"],
+        ascending=[False, True]
     )
 
     return df
