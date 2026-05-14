@@ -1,14 +1,7 @@
-# scanner_intraday.py
-
 import yfinance as yf
 import pandas as pd
 import streamlit as st
 import pytz
-
-from concurrent.futures import (
-    ThreadPoolExecutor,
-    as_completed
-)
 
 from datetime import datetime
 
@@ -19,17 +12,11 @@ from datetime import datetime
 INTERVAL = "5m"
 PERIOD = "1d"
 
-MAX_WORKERS = 25
+MIN_DAY_CHANGE = 0.003
+MAX_DISTANCE_HIGH = 0.015
 
 # ==========================================
-# FILTROS
-# ==========================================
-
-MIN_DAY_CHANGE = 0.003      # +0.3%
-MAX_DISTANCE_HIGH = 0.012   # 1.2%
-
-# ==========================================
-# MEMORIA SEÑALES
+# MEMORIA
 # ==========================================
 
 if "signal_memory" not in st.session_state:
@@ -40,7 +27,7 @@ if "signal_memory" not in st.session_state:
 # WATCHLIST USA
 # ==========================================
 
-WATCHLIST_PRIORITY_USA = [
+WATCHLIST_USA = [
 
     "NVDA","TSLA","AMD","META","AAPL","MSFT",
     "AMZN","GOOGL","PLTR","SMCI","ARM",
@@ -64,50 +51,18 @@ WATCHLIST_EUROPE = [
 
     "SAN.MC","BBVA.MC","ITX.MC","IBE.MC",
     "REP.MC","FER.MC","ACS.MC","AMS.MC",
-    "GRF.MC","AENA.MC",
+    "AENA.MC",
 
     "SAP.DE","SIE.DE","ALV.DE","BMW.DE",
-    "BAS.DE","IFX.DE","DB1.DE","VOW3.DE",
-    "MBG.DE","DTE.DE","EOAN.DE",
+    "IFX.DE","VOW3.DE",
 
-    "MC.PA","OR.PA","TTE.PA","AIR.PA",
-    "BNP.PA","KER.PA","RMS.PA","SU.PA",
+    "MC.PA","OR.PA","AIR.PA",
 
     "ASML.AS","AD.AS","INGA.AS",
-    "ASM.AS","MT.AS","PHIA.AS",
 
-    "ENI.MI","ISP.MI",
-
-    "NESN.SW","ROG.SW",
-
-    "ULVR.L",
-
-    "NOVO-B.CO"
+    "ENI.MI","ISP.MI"
 
 ]
-
-# ==========================================
-# CLEAN DF
-# ==========================================
-
-def clean_df(df):
-
-    if df is None:
-        return pd.DataFrame()
-
-    if df.empty:
-        return pd.DataFrame()
-
-    df = df.dropna()
-
-    if df.empty:
-        return pd.DataFrame()
-
-    if isinstance(df.columns, pd.MultiIndex):
-
-        df.columns = df.columns.droplevel(-1)
-
-    return df
 
 # ==========================================
 # SP500
@@ -125,18 +80,17 @@ def get_sp500_tickers():
 
         sp500 = table[0]["Symbol"].tolist()
 
-        sp500 = [
+        return [
+
             x.replace(".", "-")
+
             for x in sp500
+
         ]
 
-        return sp500
+    except:
 
-    except Exception as e:
-
-        print(f"ERROR SP500: {e}")
-
-        return WATCHLIST_PRIORITY_USA
+        return WATCHLIST_USA
 
 # ==========================================
 # UNIVERSO
@@ -148,85 +102,87 @@ def get_market_tickers():
         pytz.timezone("Europe/Madrid")
     )
 
-    hora = now.hour
+    hour = now.hour
 
-    # ======================================
     # EUROPA
-    # ======================================
+    if 9 <= hour < 16:
 
-    if 9 <= hora < 16:
-
-        print("🌍 MODO EUROPA")
+        print("🌍 EUROPA")
 
         return WATCHLIST_EUROPE
 
-    # ======================================
     # USA
-    # ======================================
+    elif 16 <= hour <= 23:
 
-    elif 16 <= hora <= 23:
-
-        print("🇺🇸 MODO USA")
+        print("🇺🇸 USA")
 
         sp500 = get_sp500_tickers()
 
-        universo = list(
+        return list(
             set(
-                WATCHLIST_PRIORITY_USA +
-                sp500[:250]
+                WATCHLIST_USA +
+                sp500[:200]
             )
         )
-
-        return universo
-
-    print("⏰ MERCADO CERRADO")
 
     return []
 
 # ==========================================
-# DESCARGA
+# DESCARGA MASIVA
 # ==========================================
 
 @st.cache_data(ttl=30)
 
-def descargar(ticker):
+def descargar_market_data(tickers):
 
     try:
 
-        df = yf.download(
+        data = yf.download(
 
-            ticker,
+            tickers=tickers,
 
             interval=INTERVAL,
 
             period=PERIOD,
 
-            progress=False,
+            group_by="ticker",
 
-            threads=False,
+            auto_adjust=True,
 
-            prepost=False,
+            threads=True,
 
-            auto_adjust=True
+            progress=False
 
         )
 
-        df = clean_df(df)
-
-        if df.empty:
-
-            return pd.DataFrame()
-
-        return df
+        return data
 
     except Exception as e:
 
-        print(f"❌ ERROR DESCARGA {ticker}: {e}")
+        print(f"ERROR DESCARGA: {e}")
+
+        return None
+
+# ==========================================
+# EXTRAER DF
+# ==========================================
+
+def get_ticker_df(data, ticker):
+
+    try:
+
+        df = data[ticker].copy()
+
+        df = df.dropna()
+
+        return df
+
+    except:
 
         return pd.DataFrame()
 
 # ==========================================
-# FILTRO LIDER
+# LIDER
 # ==========================================
 
 def es_lider(df):
@@ -245,10 +201,7 @@ def es_lider(df):
             df["Close"].iloc[-1]
         )
 
-        # ==================================
-        # CAMBIO DIARIO
-        # ==================================
-
+        # Cambio diario
         day_change = (
             current_price - open_price
         ) / open_price
@@ -257,35 +210,27 @@ def es_lider(df):
 
             return False
 
-        # ==================================
-        # MOMENTUM
-        # ==================================
-
+        # Momentum reciente
         ultimos = df["Close"].iloc[-5:]
 
-        velas_verdes = 0
+        green = 0
 
         for i in range(1, len(ultimos)):
 
             if ultimos.iloc[i] > ultimos.iloc[i - 1]:
 
-                velas_verdes += 1
+                green += 1
 
-        if velas_verdes < 3:
+        if green < 3:
 
             return False
 
-        # ==================================
         # MA20
-        # ==================================
-
         ma20 = float(
-
             df["Close"]
             .rolling(20)
             .mean()
             .iloc[-1]
-
         )
 
         if current_price < ma20:
@@ -294,9 +239,7 @@ def es_lider(df):
 
         return True
 
-    except Exception as e:
-
-        print(f"❌ ERROR LIDER: {e}")
+    except:
 
         return False
 
@@ -308,50 +251,32 @@ def detectar_setup(df):
 
     try:
 
-        if len(df) < 20:
-
-            return None
-
         precio = float(
             df["Close"].iloc[-1]
         )
 
-        # ==================================
-        # MAXIMOS RECIENTES
-        # ==================================
-
         high_20 = float(
-
             df["High"]
             .iloc[-20:]
             .max()
-
         )
 
         low_20 = float(
-
             df["Low"]
             .iloc[-20:]
             .min()
-
         )
 
-        # ==================================
-        # CERCA DE MAXIMOS
-        # ==================================
-
-        distance_high = (
+        # Cerca de máximos
+        distance = (
             high_20 - precio
         ) / high_20
 
-        if distance_high > MAX_DISTANCE_HIGH:
+        if distance > MAX_DISTANCE_HIGH:
 
             return None
 
-        # ==================================
-        # STOP
-        # ==================================
-
+        # Stop
         stop = low_20
 
         risk = precio - stop
@@ -360,10 +285,7 @@ def detectar_setup(df):
 
             return None
 
-        # ==================================
-        # TARGET
-        # ==================================
-
+        # Target
         target = precio + (
             risk * 2
         )
@@ -372,26 +294,15 @@ def detectar_setup(df):
             target - precio
         ) / risk
 
-        # ==================================
-        # MOMENTUM
-        # ==================================
-
+        # Momentum score
         momentum = (
-
             precio -
-
             float(df["Close"].iloc[-10])
-
         ) / float(df["Close"].iloc[-10])
 
-        # ==================================
-        # SCORE
-        # ==================================
-
         score = (
-            (momentum * 1000) +
-            (rr * 20)
-        )
+            momentum * 1000
+        ) + (rr * 20)
 
         return {
 
@@ -412,109 +323,7 @@ def detectar_setup(df):
 
         }
 
-    except Exception as e:
-
-        print(f"❌ ERROR SETUP: {e}")
-
-        return None
-
-# ==========================================
-# PROCESAR TICKER
-# ==========================================
-
-def procesar_ticker(ticker):
-
-    try:
-
-        df = descargar(ticker)
-
-        if df.empty:
-
-            return None
-
-        # ==================================
-        # FILTRO LIDER
-        # ==================================
-
-        if not es_lider(df):
-
-            return None
-
-        # ==================================
-        # SETUP
-        # ==================================
-
-        setup = detectar_setup(df)
-
-        if setup is None:
-
-            return None
-
-        # ==================================
-        # TIMESTAMP
-        # ==================================
-
-        now = datetime.now(
-            pytz.timezone("Europe/Madrid")
-        )
-
-        signal_memory = (
-            st.session_state.signal_memory
-        )
-
-        if ticker not in signal_memory:
-
-            signal_memory[ticker] = now
-
-        signal_time = signal_memory[ticker]
-
-        minutes_live = int(
-
-            (
-                now - signal_time
-            ).total_seconds() / 60
-
-        )
-
-        # ==================================
-        # STATUS
-        # ==================================
-
-        if minutes_live <= 5:
-
-            status = "🔥 FRESH"
-
-        elif minutes_live <= 15:
-
-            status = "⚠️ ACTIVE"
-
-        else:
-
-            status = "❌ LATE"
-
-        resultado = {
-
-            "Ticker": ticker,
-
-            "Hora Señal": signal_time.strftime(
-                "%H:%M:%S"
-            ),
-
-            "Minutos": minutes_live,
-
-            "Estado": status,
-
-            **setup
-
-        }
-
-        print(f"✅ SETUP: {ticker}")
-
-        return resultado
-
-    except Exception as e:
-
-        print(f"❌ ERROR TICKER {ticker}: {e}")
+    except:
 
         return None
 
@@ -528,56 +337,126 @@ def scan_intraday():
 
     tickers = get_market_tickers()
 
-    print(f"\n🌍 TOTAL TICKERS: {len(tickers)}")
+    print(f"🌍 Tickers: {len(tickers)}")
 
     if not tickers:
 
         return pd.DataFrame()
 
-    with ThreadPoolExecutor(
-        max_workers=MAX_WORKERS
-    ) as executor:
+    # ======================================
+    # DESCARGA MASIVA
+    # ======================================
 
-        futures = {
+    data = descargar_market_data(tickers)
 
-            executor.submit(
-                procesar_ticker,
+    if data is None:
+
+        return pd.DataFrame()
+
+    # ======================================
+    # PROCESAR
+    # ======================================
+
+    for ticker in tickers:
+
+        try:
+
+            df = get_ticker_df(
+                data,
                 ticker
-            ): ticker
+            )
 
-            for ticker in tickers
-
-        }
-
-        for future in as_completed(futures):
-
-            try:
-
-                result = future.result()
-
-                if result is not None:
-
-                    resultados.append(result)
-
-            except Exception as e:
-
-                print(f"❌ ERROR FUTURE: {e}")
+            if df.empty:
 
                 continue
 
+            if not es_lider(df):
+
+                continue
+
+            setup = detectar_setup(df)
+
+            if setup is None:
+
+                continue
+
+            # ==================================
+            # TIMESTAMP
+            # ==================================
+
+            now = datetime.now(
+                pytz.timezone("Europe/Madrid")
+            )
+
+            signal_memory = (
+                st.session_state.signal_memory
+            )
+
+            if ticker not in signal_memory:
+
+                signal_memory[ticker] = now
+
+            signal_time = signal_memory[ticker]
+
+            minutes_live = int(
+
+                (
+                    now - signal_time
+                ).total_seconds() / 60
+
+            )
+
+            # ==================================
+            # STATUS
+            # ==================================
+
+            if minutes_live <= 5:
+
+                status = "🔥 FRESH"
+
+            elif minutes_live <= 15:
+
+                status = "⚠️ ACTIVE"
+
+            else:
+
+                status = "❌ LATE"
+
+            resultados.append({
+
+                "Ticker": ticker,
+
+                "Hora Señal": signal_time.strftime(
+                    "%H:%M:%S"
+                ),
+
+                "Minutos": minutes_live,
+
+                "Estado": status,
+
+                **setup
+
+            })
+
+        except Exception as e:
+
+            print(f"ERROR {ticker}: {e}")
+
+            continue
+
+    # ======================================
+    # DATAFRAME
+    # ======================================
+
     df = pd.DataFrame(resultados)
 
-    print(f"🎯 TOTAL SETUPS: {len(df)}")
+    print(f"🎯 SETUPS: {len(df)}")
 
     if df.empty:
 
         return df
 
-    # ======================================
-    # ORDEN FINAL
-    # ======================================
-
-    df = df.sort_values(
+    return df.sort_values(
 
         by=[
 
@@ -594,5 +473,3 @@ def scan_intraday():
         ]
 
     )
-
-    return df
