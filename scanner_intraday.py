@@ -2,6 +2,7 @@
 
 import yfinance as yf
 import pandas as pd
+import numpy as np
 import streamlit as st
 
 from concurrent.futures import (
@@ -20,18 +21,16 @@ INTERVAL = "1m"
 PERIOD = "1d"
 
 # ==========================================
-# FILTROS
+# FILTROS FLEXIBLES
 # ==========================================
 
-MIN_CHANGE = 0.0025
-VOL_MULTIPLIER = 0.9
+MIN_CHANGE = 0.0015          # 0.15%
+VOL_MULTIPLIER = 0.7
 
-PULLBACK_TOLERANCE = 0.004
-
-MAX_EXTENSION = 0.03
+MAX_EXTENSION = 0.05         # 5%
 
 # ==========================================
-# MEMORIA SEÑALES
+# MEMORIA
 # ==========================================
 
 if "signal_memory" not in st.session_state:
@@ -74,14 +73,11 @@ WATCHLIST_EUROPE = [
 
     "MC.PA","OR.PA","TTE.PA","AIR.PA",
     "BNP.PA","KER.PA","RMS.PA","SU.PA",
-    "DG.PA","CAP.PA","AI.PA",
 
     "ASML.AS","AD.AS","INGA.AS",
     "ASM.AS","MT.AS","PHIA.AS",
 
     "ENI.MI","ISP.MI",
-
-    "UCB.BR","ABI.BR","ARGX.BR",
 
     "NESN.SW","ROG.SW",
 
@@ -92,7 +88,7 @@ WATCHLIST_EUROPE = [
 ]
 
 # ==========================================
-# CLEAN DF
+# CLEAN
 # ==========================================
 
 def clean_df(df):
@@ -138,7 +134,7 @@ def get_sp500_tickers():
         return WATCHLIST_PRIORITY_USA
 
 # ==========================================
-# UNIVERSO SEGUN HORA
+# UNIVERSO
 # ==========================================
 
 def get_market_tickers():
@@ -149,18 +145,12 @@ def get_market_tickers():
 
     hora = now.hour
 
-    # ======================================
     # EUROPA
-    # ======================================
-
     if 9 <= hora < 16:
 
         return WATCHLIST_EUROPE
 
-    # ======================================
     # USA
-    # ======================================
-
     elif 16 <= hora <= 23:
 
         sp500 = get_sp500_tickers()
@@ -171,7 +161,7 @@ def get_market_tickers():
 
                 WATCHLIST_PRIORITY_USA +
 
-                sp500[:250]
+                sp500[:300]
 
             )
 
@@ -183,7 +173,7 @@ def get_market_tickers():
 # DESCARGA
 # ==========================================
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=30)
 
 def descargar(ticker):
 
@@ -212,14 +202,14 @@ def descargar(ticker):
         return pd.DataFrame()
 
 # ==========================================
-# FILTRO LIDER
+# LIDER FLEXIBLE
 # ==========================================
 
 def es_lider(df):
 
     try:
 
-        if len(df) < 30:
+        if len(df) < 20:
 
             return False
 
@@ -230,10 +220,6 @@ def es_lider(df):
         current_price = float(
             df["Close"].iloc[-1]
         )
-
-        # ==================================
-        # CAMBIO %
-        # ==================================
 
         change = (
             current_price - open_price
@@ -248,7 +234,7 @@ def es_lider(df):
         # ==================================
 
         vol_actual = float(
-            df["Volume"].iloc[-15:].sum()
+            df["Volume"].iloc[-10:].sum()
         )
 
         vol_media = (
@@ -256,11 +242,11 @@ def es_lider(df):
             float(
 
                 df["Volume"]
-                .rolling(30)
+                .rolling(20)
                 .mean()
                 .iloc[-1]
 
-            ) * 15
+            ) * 10
 
         )
 
@@ -283,25 +269,7 @@ def es_lider(df):
 
         )
 
-        if current_price < ma20:
-
-            return False
-
-        # ==================================
-        # MOMENTUM FLEXIBLE
-        # ==================================
-
-        ultimos = df["Close"].iloc[-5:]
-
-        green = 0
-
-        for i in range(1, len(ultimos)):
-
-            if ultimos.iloc[i] > ultimos.iloc[i - 1]:
-
-                green += 1
-
-        if green < 3:
+        if current_price < ma20 * 0.995:
 
             return False
 
@@ -312,20 +280,16 @@ def es_lider(df):
         return False
 
 # ==========================================
-# DETECTAR SETUP
+# SETUP
 # ==========================================
 
 def detectar_setup(df):
 
     try:
 
-        if len(df) < 30:
+        if len(df) < 20:
 
             return None
-
-        # ==================================
-        # OPENING RANGE
-        # ==================================
 
         opening = df.iloc[:15]
 
@@ -342,10 +306,22 @@ def detectar_setup(df):
         )
 
         # ==================================
-        # BREAKOUT
+        # ROMPIMIENTO RECIENTE
         # ==================================
 
-        if precio <= orb_high:
+        recientes = df.iloc[-5:]
+
+        breakout_recent = False
+
+        for close in recientes["Close"]:
+
+            if float(close) > orb_high:
+
+                breakout_recent = True
+
+                break
+
+        if not breakout_recent:
 
             return None
 
@@ -397,34 +373,39 @@ def detectar_setup(df):
 
         score = 0
 
-        # Momentum
+        # Cambio %
         score += min(
-            extension * 100 * 8,
-            25
-        )
-
-        # Calidad riesgo
-        score += min(
-            risk * 10,
-            25
+            extension * 100 * 10,
+            35
         )
 
         # RR
         score += min(
-            rr * 15,
+            rr * 20,
             30
         )
 
+        # Momentum reciente
+        ultimos = recientes["Close"]
+
+        momentum_score = 0
+
+        for i in range(1, len(ultimos)):
+
+            if ultimos.iloc[i] > ultimos.iloc[i - 1]:
+
+                momentum_score += 1
+
+        score += momentum_score * 7
+
         # Cercanía breakout
-        distance_from_orb = (
+        distance = abs(
             precio - orb_high
         ) / orb_high
 
         score += max(
             0,
-            20 - (
-                distance_from_orb * 1000
-            )
+            20 - distance * 1000
         )
 
         score = round(score, 1)
@@ -453,7 +434,7 @@ def detectar_setup(df):
         return None
 
 # ==========================================
-# PROCESAR TICKER
+# PROCESAR
 # ==========================================
 
 def procesar_ticker(ticker):
@@ -475,10 +456,6 @@ def procesar_ticker(ticker):
         if setup is None:
 
             return None
-
-        # ==================================
-        # TIMESTAMP SEÑAL
-        # ==================================
 
         now = datetime.now(
             pytz.timezone("Europe/Madrid")
@@ -503,7 +480,7 @@ def procesar_ticker(ticker):
         )
 
         # ==================================
-        # ESTADO
+        # STATUS
         # ==================================
 
         if minutes_live <= 5:
@@ -539,7 +516,7 @@ def procesar_ticker(ticker):
         return None
 
 # ==========================================
-# MAIN SCAN
+# MAIN
 # ==========================================
 
 def scan_intraday():
@@ -553,7 +530,7 @@ def scan_intraday():
         return pd.DataFrame()
 
     with ThreadPoolExecutor(
-        max_workers=30
+        max_workers=40
     ) as executor:
 
         futures = {
@@ -586,10 +563,6 @@ def scan_intraday():
     if df.empty:
 
         return df
-
-    # ======================================
-    # ORDEN FINAL
-    # ======================================
 
     df = df.sort_values(
 
