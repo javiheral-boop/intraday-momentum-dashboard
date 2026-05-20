@@ -9,11 +9,13 @@ import streamlit as st
 
 MIN_VOLUME = 300000
 
-ATR_STOP = 2
-ATR_TARGET = 3
+ATR_STOP = 1.8
+ATR_TARGET = 3.5
+
+USD_EUR = 0.92
 
 # ==========================================
-# EUROPA
+# WATCHLIST EUROPA
 # ==========================================
 
 WATCHLIST_EUROPE = [
@@ -29,7 +31,7 @@ WATCHLIST_EUROPE = [
 ]
 
 # ==========================================
-# CLEAN
+# CLEAN DF
 # ==========================================
 
 def clean_df(df):
@@ -40,7 +42,6 @@ def clean_df(df):
     df = df.dropna()
 
     if isinstance(df.columns, pd.MultiIndex):
-
         df.columns = df.columns.droplevel(-1)
 
     return df
@@ -50,7 +51,6 @@ def clean_df(df):
 # ==========================================
 
 @st.cache_data(ttl=3600)
-
 def get_sp500_tickers():
 
     try:
@@ -61,20 +61,16 @@ def get_sp500_tickers():
 
         sp500 = table[0]["Symbol"].tolist()
 
-        sp500 = [
+        return [
             x.replace(".", "-")
             for x in sp500
         ]
 
-        return sp500
-
     except:
 
         return [
-
             "AAPL","MSFT","NVDA",
             "AMZN","GOOGL","META"
-
         ]
 
 # ==========================================
@@ -85,13 +81,7 @@ def get_universe():
 
     usa = get_sp500_tickers()
 
-    europa = WATCHLIST_EUROPE
-
-    return list(set(
-
-    usa[:150] +
-
-    [
+    growth = [
 
         "NVDA","SMCI","PLTR","COHR",
         "ADI","AVGO","MRVL","MU",
@@ -99,11 +89,13 @@ def get_universe():
         "MSFT","AMZN","GOOGL",
         "CRWD","PANW","SNOW",
         "NET","DDOG","SHOP",
-        "MSTR","COIN","RKLB"
+        "MSTR","COIN","RKLB",
+        "SOUN","IONQ","AI"
 
     ]
 
-    + europa
+    return list(set(
+        usa[:250] + growth + WATCHLIST_EUROPE
     ))
 
 # ==========================================
@@ -127,47 +119,89 @@ def calcular_atr(df, periodo=14):
     )
 
     tr = pd.concat(
-
-        [
-            high_low,
-            high_close,
-            low_close
-        ],
-
+        [high_low, high_close, low_close],
         axis=1
-
     ).max(axis=1)
 
-    return tr.rolling(
-        periodo
-    ).mean()
+    return tr.rolling(periodo).mean()
+
+# ==========================================
+# SETUP DETECTOR
+# ==========================================
+
+
+            setup = "BASE BUILDING"
+
+            action_text = (
+                "🔵 Vigilar consolidación"
+                " y ruptura"
+            )
+
+        eur_trigger = round(
+            breakout_trigger * USD_EUR,
+            2
+        )
+
+        eur_target = round(
+            target_price * USD_EUR,
+            2
+        )
+
+        eur_stop = round(
+            stop_price * USD_EUR,
+            2
+        )
+
+        return {
+
+            "Ticker": ticker,
+            "Setup": setup,
+            "Operativa": action_text,
+
+            "Precio Actual": round(current_price, 2),
+
+            "Entrada Trigger USD": breakout_trigger,
+            "Target USD": target_price,
+            "Stop USD": stop_price,
+
+            "Entrada Trigger EUR": eur_trigger,
+            "Target EUR": eur_target,
+            "Stop EUR": eur_stop,
+
+            "RR": round(rr, 2),
+            "Score": int(score),
+
+            "Momentum 20D": round(momentum_20 * 100, 2),
+            "Rel Volume": round(rel_volume, 2),
+            "Distance Breakout %": round(distance_breakout * 100, 2),
+            "Extension %": round(extension * 100, 2)
+
+        }
+
+    except:
+
+        return None
 
 # ==========================================
 # MAIN
 # ==========================================
 
-@st.cache_data(ttl=60)
-
+@st.cache_data(ttl=120)
 def scan_swing():
 
     resultados = []
 
     tickers = get_universe()
 
-    tickers = tickers[:500]
-
     try:
 
         data = yf.download(
 
-            tickers,
-
+            tickers=tickers,
             period="1y",
-
             group_by="ticker",
-
+            auto_adjust=True,
             threads=True,
-
             progress=False
 
         )
@@ -175,257 +209,29 @@ def scan_swing():
     except:
 
         return pd.DataFrame()
-
-    # ======================================
-    # SPY
-    # ======================================
-
-    try:
-
-        spy = yf.download(
-            "SPY",
-            period="1y",
-            progress=False
-        )
-
-        spy = clean_df(spy)
-
-        spy_close = spy["Close"]
-
-        spy_sma200 = (
-            spy_close
-            .rolling(200)
-            .mean()
-        )
-
-        # ==================================
-        # FILTRO MERCADO
-        # ==================================
-
-        if (
-            spy_close.iloc[-1]
-            < spy_sma200.iloc[-1]
-        ):
-
-            return pd.DataFrame()
-
-        idx_return = (
-            spy_close
-            .pct_change(126)
-            .iloc[-1]
-        )
-
-    except:
-
-        return pd.DataFrame()
-
-    # ======================================
-    # LOOP
-    # ======================================
 
     for ticker in tickers:
 
         try:
 
-            df = clean_df(
-                data[ticker]
-            )
+            df = data[ticker].copy()
 
-            if len(df) < 200:
-                continue
+            result = detectar_setup(df, ticker)
 
-            # ==================================
-            # VOLUMEN
-            # ==================================
-
-            if (
-                df["Volume"]
-                .iloc[-1]
-                < MIN_VOLUME
-            ):
-                continue
-
-            close = df["Close"]
-
-            current = close.iloc[-1]
-
-            sma50 = (
-                close
-                .rolling(50)
-                .mean()
-                .iloc[-1]
-            )
-
-            sma200 = (
-                close
-                .rolling(200)
-                .mean()
-                .iloc[-1]
-            )
-
-            # ==================================
-            # TENDENCIA
-            # ==================================
-
-            if not (
-                current > sma50 > sma200
-            ):
-                continue
-
-            # ==================================
-            # MOMENTUM
-            # ==================================
-
-            momentum = (
-                close
-                .pct_change(126)
-                .iloc[-1]
-            )
-
-            rs = momentum - idx_return
-
-            # ==================================
-            # VOLATILIDAD
-            # ==================================
-
-            volatility = (
-
-                close
-                .pct_change()
-                .rolling(63)
-                .std()
-                .iloc[-1]
-
-            )
-
-            # ==================================
-            # BREAKOUT
-            # ==================================
-
-            max_prev = (
-                df["High"]
-                .iloc[-6:-1]
-                .max()
-            )
-
-            if current <= max_prev:
-                continue
-
-            # ==================================
-            # ATR
-            # ==================================
-
-            atr = calcular_atr(df).iloc[-1]
-
-            stop = (
-                current -
-                ATR_STOP * atr
-            )
-
-            target = (
-                current +
-                ATR_TARGET * atr
-            )
-
-            rr = (
-                target - current
-            ) / (
-                current - stop
-            )
-
-            trend = current / sma200
-
-            resultados.append({
-
-                "Ticker": ticker,
-
-                "Momentum": round(
-                    momentum,
-                    3
-                ),
-
-                "RS": round(
-                    rs,
-                    3
-                ),
-
-                "Trend": round(
-                    trend,
-                    3
-                ),
-
-                "Volatility": round(
-                    volatility,
-                    3
-                ),
-
-                "Entrada": round(
-                    current,
-                    2
-                ),
-
-                "Stop": round(
-                    stop,
-                    2
-                ),
-
-                "Target": round(
-                    target,
-                    2
-                ),
-
-                "RR": round(
-                    rr,
-                    2
-                )
-
-            })
+            if result:
+                resultados.append(result)
 
         except:
-
             continue
 
-    df = pd.DataFrame(resultados)
+    if not resultados:
+        return pd.DataFrame()
 
-    if df.empty:
-        return df
+    df_final = pd.DataFrame(resultados)
 
-    # ======================================
-    # SCORE
-    # ======================================
-
-    df["Momentum_rank"] = (
-        df["Momentum"]
-        .rank(pct=True)
-    )
-
-    df["RS_rank"] = (
-        df["RS"]
-        .rank(pct=True)
-    )
-
-    df["Trend_rank"] = (
-        df["Trend"]
-        .rank(pct=True)
-    )
-
-    df["Vol_rank"] = 1 - (
-        df["Volatility"]
-        .rank(pct=True)
-    )
-
-    df["Score"] = (
-
-        0.35 * df["Momentum_rank"] +
-        0.30 * df["RS_rank"] +
-        0.25 * df["Trend_rank"] +
-        0.10 * df["Vol_rank"]
-
-    )
-
-    final = df.sort_values(
-        "Score",
+    df_final = df_final.sort_values(
+        by="Score",
         ascending=False
     )
 
-    return final.head(5)
+    return df_final
