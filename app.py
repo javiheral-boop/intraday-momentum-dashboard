@@ -1,590 +1,437 @@
+# ==========================================
+# app.py
+# ==========================================
+
 import streamlit as st
 import pandas as pd
-
-from streamlit_autorefresh import st_autorefresh
 
 from scanner_intraday import scan_intraday
 from scanner_swing import scan_swing
 
-from portfolio import (
-    load_open_positions,
-    add_position,
-    close_position
-)
-
-from journal import (
-    load_closed_positions
-)
-
 # ==========================================
-# CONFIG
+# CONFIG PAGE
 # ==========================================
 
 st.set_page_config(
 
     page_title="Momentum Trading Dashboard",
-
     layout="wide"
 
 )
 
 # ==========================================
-# AUTO REFRESH
+# STYLE
 # ==========================================
 
-st_autorefresh(
+st.markdown("""
 
-    interval=30000,
+<style>
 
-    key="market_refresh"
+.main {
+    background-color: #0e1117;
+}
 
-)
+h1, h2, h3 {
+    color: white;
+}
+
+div[data-testid="stDataFrame"] {
+    border-radius: 10px;
+}
+
+</style>
+
+""", unsafe_allow_html=True)
 
 # ==========================================
-# TITULO
+# TITLE
 # ==========================================
 
-st.title(
-    "🚀 Momentum Trading Dashboard"
-)
+st.title("🚀 Momentum Trading Dashboard V2")
+
+st.markdown("""
+Sistema avanzado de detección de:
+
+- Swing pre-breakout
+- Momentum expansion
+- Pullback continuation
+- Intradía momentum
+""")
 
 # ==========================================
 # TABS
 # ==========================================
 
-tab1, tab2, tab3, tab4 = st.tabs([
+intraday_tab, swing_tab = st.tabs([
 
     "⚡ Intradía",
-    "📈 Swing",
-    "💼 Posiciones Abiertas",
-    "📊 P&L"
+    "📈 Swing"
 
 ])
 
 # ==========================================
-# TAB 1 - INTRADIA
+# INTRADAY
 # ==========================================
 
-with tab1:
+with intraday_tab:
 
-    st.header(
-        "⚡ Recomendaciones Intradía"
-    )
+    st.header("⚡ Scanner Intradía")
 
-    # ======================================
-    # SESSION STATE
-    # ======================================
+    st.markdown("""
+Detecta:
 
-    if "intraday_running" not in st.session_state:
+- Pre breakouts
+- Momentum intradía
+- Continuaciones fuertes
+- Volumen anómalo
+""")
 
-        st.session_state.intraday_running = False
+    with st.spinner("Escaneando mercado intradía..."):
 
-    if "intraday_results" not in st.session_state:
+        intraday = scan_intraday()
 
-        st.session_state.intraday_results = pd.DataFrame()
-
-    # ======================================
-    # BOTONES
-    # ======================================
-
-    col1, col2 = st.columns(2)
-
-    # ======================================
-    # START
-    # ======================================
-
-    with col1:
-
-        if st.button(
-            "▶️ Iniciar Escaneo"
-        ):
-
-            st.session_state.intraday_running = True
-
-    # ======================================
-    # STOP
-    # ======================================
-
-    with col2:
-
-        if st.button(
-            "⏹️ Detener Escaneo"
-        ):
-
-            st.session_state.intraday_running = False
-
-    # ======================================
-    # INFO
-    # ======================================
-
-    if st.session_state.intraday_running:
-
-        st.success(
-            "🟢 Scanner activo | Refresh 30s"
-        )
-
-    else:
+    if intraday.empty:
 
         st.warning(
-            "🔴 Scanner detenido"
-        )
-
-    # ======================================
-    # ESCANEO
-    # ======================================
-
-    if st.session_state.intraday_running:
-
-        with st.spinner(
-
-            "Escaneando mercado..."
-
-        ):
-
-            df_intraday = scan_intraday()
-
-            st.session_state.intraday_results = (
-                df_intraday
-            )
-
-        if not df_intraday.empty:
-
-            st.success(
-
-                f"🔥 Setups encontrados: {len(df_intraday)}"
-
-            )
-
-        else:
-
-            st.warning(
-
-                "⚠️ No hay setups actualmente"
-
-            )
-
-    # ======================================
-    # MOSTRAR RESULTADOS
-    # ======================================
-
-    if not st.session_state.intraday_results.empty:
-
-        df_show = (
-            st.session_state.intraday_results
-        )
-
-        # ==================================
-        # ORDEN COLUMNAS
-        # ==================================
-
-        columnas = [
-
-            "Ticker",
-
-            "Hora Señal",
-
-            "Minutos",
-
-            "Estado",
-
-            "Entrada",
-
-            "Stop",
-
-            "Target",
-
-            "RR",
-
-            "Cambio %",
-
-            "Score"
-
-        ]
-
-        columnas_existentes = [
-
-            c for c in columnas
-
-            if c in df_show.columns
-
-        ]
-
-        df_show = df_show[
-            columnas_existentes
-        ]
-
-        # ==================================
-        # STYLE
-        # ==================================
-
-        def color_estado(val):
-
-            if "FRESH" in str(val):
-
-                return (
-                    "background-color: #0d4f2f;"
-                    "color: white;"
-                )
-
-            elif "ACTIVE" in str(val):
-
-                return (
-                    "background-color: #7a5c00;"
-                    "color: white;"
-                )
-
-            elif "LATE" in str(val):
-
-                return (
-                    "background-color: #7a0000;"
-                    "color: white;"
-                )
-
-            return ""
-
-        # ==================================
-        # TABLA
-        # ==================================
-
-        st.dataframe(
-
-            df_show
-            .style
-            .map(
-                color_estado,
-                subset=["Estado"]
-            ),
-
-            use_container_width=True,
-
-            hide_index=True
-
+            "⚠️ No hay setups intradía actualmente"
         )
 
     else:
 
-        st.info(
-
-            "No hay setups actualmente"
-
+        st.success(
+            f"🔥 {len(intraday)} setups encontrados"
         )
 
-# ==========================================
-# TAB 2 - SWING
-# ==========================================
+        # ==================================
+        # MOMENTUM EXPANSION
+        # ==================================
 
-with tab2:
+        momentum_df = intraday[
+            intraday["Estado"] ==
+            "🔥 MOMENTUM EXPANSION"
+        ]
 
-    st.header(
-        "📈 Recomendaciones Swing"
-    )
+        if not momentum_df.empty:
 
-    if st.button(
-        "🔄 Escanear Swing"
-    ):
+            st.subheader(
+                "🔥 MOMENTUM EXPANSION"
+            )
 
-        with st.spinner(
-
-            "Buscando oportunidades swing..."
-
-        ):
-
-            df_swing = scan_swing()
-
-        if not df_swing.empty:
-
-            st.success(
-
-                f"📈 Oportunidades encontradas: {len(df_swing)}"
-
+            st.info(
+                "Operativa: entrar únicamente "
+                "si rompe máximo intradía "
+                "con volumen fuerte."
             )
 
             st.dataframe(
 
-                df_swing,
+                momentum_df.head(5),
 
-                use_container_width=True,
-
-                hide_index=True
+                use_container_width=True
 
             )
 
-        else:
+        # ==================================
+        # PRE BREAKOUT
+        # ==================================
 
-            st.warning(
+        breakout_df = intraday[
+            intraday["Estado"] ==
+            "🟢 PRE BREAKOUT"
+        ]
 
-                "⚠️ No hay setups swing"
+        if not breakout_df.empty:
+
+            st.subheader(
+                "🟢 PRE BREAKOUT"
+            )
+
+            st.info(
+                "Operativa: colocar BUY STOP "
+                "ligeramente por encima "
+                "del trigger."
+            )
+
+            st.dataframe(
+
+                breakout_df.head(5),
+
+                use_container_width=True
+
+            )
+
+        # ==================================
+        # CONTINUATION
+        # ==================================
+
+        continuation_df = intraday[
+            intraday["Estado"] ==
+            "🟡 CONTINUATION"
+        ]
+
+        if not continuation_df.empty:
+
+            st.subheader(
+                "🟡 CONTINUATION"
+            )
+
+            st.info(
+                "Operativa: esperar pullback "
+                "controlado antes de entrar."
+            )
+
+            st.dataframe(
+
+                continuation_df.head(5),
+
+                use_container_width=True
 
             )
 
 # ==========================================
-# TAB 3 - POSICIONES ABIERTAS
+# SWING
 # ==========================================
 
-with tab3:
+with swing_tab:
 
-    st.header(
-        "💼 Gestión de Posiciones"
-    )
+    st.header("📈 Scanner Swing")
 
-    # ======================================
-    # NUEVA POSICION
-    # ======================================
+    st.markdown("""
+Detecta:
 
-    with st.form("new_position"):
+- Early breakouts
+- Pullback continuation
+- Momentum expansion
+- Base building
+""")
 
-        ticker = st.text_input(
-            "Ticker"
-        )
+    with st.spinner("Escaneando mercado swing..."):
 
-        buy_price = st.number_input(
-            "Precio Compra",
-            min_value=0.0
-        )
+        swing = scan_swing()
 
-        stop = st.number_input(
-            "Stop Loss",
-            min_value=0.0
-        )
+    if swing.empty:
 
-        target = st.number_input(
-            "Target",
-            min_value=0.0
-        )
-
-        shares = st.number_input(
-
-            "Acciones",
-
-            min_value=1,
-
-            step=1
-
-        )
-
-        submit = st.form_submit_button(
-            "➕ Añadir Posición"
-        )
-
-        if submit:
-
-            add_position(
-
-                ticker,
-
-                buy_price,
-
-                stop,
-
-                target,
-
-                shares
-
-            )
-
-            st.success(
-                "✅ Posición añadida"
-            )
-
-    # ======================================
-    # POSICIONES ABIERTAS
-    # ======================================
-
-    st.subheader(
-        "📋 Posiciones Abiertas"
-    )
-
-    open_df = load_open_positions()
-
-    if not open_df.empty:
-
-        st.dataframe(
-
-            open_df,
-
-            use_container_width=True,
-
-            hide_index=True
-
+        st.warning(
+            "⚠️ No hay setups swing actualmente"
         )
 
     else:
 
-        st.info(
-            "No hay posiciones abiertas"
+        st.success(
+            f"🚀 {len(swing)} setups encontrados"
         )
 
-    # ======================================
-    # CERRAR POSICION
-    # ======================================
+        # ==================================
+        # EARLY BREAKOUT
+        # ==================================
 
-    st.subheader(
-        "❌ Cerrar Posición"
-    )
+        early_df = swing[
+            swing["Setup"] ==
+            "EARLY BREAKOUT"
+        ]
 
-    if not open_df.empty:
+        if not early_df.empty:
 
-        selected = st.selectbox(
+            st.subheader(
+                "🟢 EARLY BREAKOUT"
+            )
 
-            "Seleccionar ticker",
+            st.info(
+                "Operativa: colocar BUY STOP "
+                "antes de ruptura."
+            )
 
-            open_df["Ticker"]
+            st.dataframe(
 
-        )
+                early_df.head(3)[[
 
-        sell_price = st.number_input(
+                    "Ticker",
 
-            "Precio Venta",
+                    "Precio Actual",
 
-            min_value=0.0
+                    "Entrada Trigger USD",
+                    "Target USD",
+                    "Stop USD",
 
-        )
+                    "Entrada Trigger EUR",
+                    "Target EUR",
+                    "Stop EUR",
 
-        close_btn = st.button(
-            "Cerrar Trade"
-        )
+                    "RR",
+                    "Score",
 
-        if close_btn:
+                    "Rel Volume",
+                    "Momentum 20D",
 
-            close_position(
+                    "Distance Breakout %",
+                    "Extension %"
 
-                selected,
+                ]],
 
-                sell_price
+                use_container_width=True
 
             )
 
-            st.success(
-                "✅ Trade cerrado"
+        # ==================================
+        # PULLBACK CONTINUATION
+        # ==================================
+
+        pullback_df = swing[
+            swing["Setup"] ==
+            "PULLBACK CONTINUATION"
+        ]
+
+        if not pullback_df.empty:
+
+            st.subheader(
+                "🟡 PULLBACK CONTINUATION"
+            )
+
+            st.info(
+                "Operativa: reinvertir "
+                "en rebote sobre soporte."
+            )
+
+            st.dataframe(
+
+                pullback_df.head(3)[[
+
+                    "Ticker",
+
+                    "Precio Actual",
+
+                    "Entrada Trigger USD",
+                    "Target USD",
+                    "Stop USD",
+
+                    "Entrada Trigger EUR",
+                    "Target EUR",
+                    "Stop EUR",
+
+                    "RR",
+                    "Score",
+
+                    "Rel Volume",
+                    "Momentum 20D",
+
+                    "Distance Breakout %",
+                    "Extension %"
+
+                ]],
+
+                use_container_width=True
+
+            )
+
+        # ==================================
+        # MOMENTUM EXPANSION
+        # ==================================
+
+        momentum_swing_df = swing[
+            swing["Setup"] ==
+            "MOMENTUM EXPANSION"
+        ]
+
+        if not momentum_swing_df.empty:
+
+            st.subheader(
+                "🔥 MOMENTUM EXPANSION"
+            )
+
+            st.info(
+                "Operativa: seguir momentum "
+                "solo con volumen fuerte."
+            )
+
+            st.dataframe(
+
+                momentum_swing_df.head(3)[[
+
+                    "Ticker",
+
+                    "Precio Actual",
+
+                    "Entrada Trigger USD",
+                    "Target USD",
+                    "Stop USD",
+
+                    "Entrada Trigger EUR",
+                    "Target EUR",
+                    "Stop EUR",
+
+                    "RR",
+                    "Score",
+
+                    "Rel Volume",
+                    "Momentum 20D",
+
+                    "Distance Breakout %",
+                    "Extension %"
+
+                ]],
+
+                use_container_width=True
+
+            )
+
+        # ==================================
+        # BASE BUILDING
+        # ==================================
+
+        base_df = swing[
+            swing["Setup"] ==
+            "BASE BUILDING"
+        ]
+
+        if not base_df.empty:
+
+            st.subheader(
+                "🔵 BASE BUILDING"
+            )
+
+            st.info(
+                "Operativa: vigilar "
+                "consolidación y ruptura."
+            )
+
+            st.dataframe(
+
+                base_df.head(3)[[
+
+                    "Ticker",
+
+                    "Precio Actual",
+
+                    "Entrada Trigger USD",
+                    "Target USD",
+                    "Stop USD",
+
+                    "Entrada Trigger EUR",
+                    "Target EUR",
+                    "Stop EUR",
+
+                    "RR",
+                    "Score",
+
+                    "Rel Volume",
+                    "Momentum 20D",
+
+                    "Distance Breakout %",
+                    "Extension %"
+
+                ]],
+
+                use_container_width=True
+
             )
 
 # ==========================================
-# TAB 4 - PNL
+# FOOTER
 # ==========================================
 
-with tab4:
+st.markdown("---")
 
-    st.header(
-        "📊 Histórico y P&L"
-    )
-
-    closed_df = load_closed_positions()
-
-    if not closed_df.empty:
-
-        total_pnl = closed_df["PnL"].sum()
-
-        wins = closed_df[
-            closed_df["PnL"] > 0
-        ]
-
-        losses = closed_df[
-            closed_df["PnL"] <= 0
-        ]
-
-        winrate = (
-
-            len(wins)
-
-            / len(closed_df)
-
-        ) * 100
-
-        avg_win = (
-            wins["PnL"].mean()
-            if not wins.empty
-            else 0
-        )
-
-        avg_loss = (
-            losses["PnL"].mean()
-            if not losses.empty
-            else 0
-        )
-
-        # ==================================
-        # METRICAS
-        # ==================================
-
-        col1, col2, col3, col4 = st.columns(4)
-
-        col1.metric(
-
-            "💰 P&L Total",
-
-            round(total_pnl, 2)
-
-        )
-
-        col2.metric(
-
-            "🎯 Win Rate",
-
-            f"{round(winrate,2)}%"
-
-        )
-
-        col3.metric(
-
-            "📈 Trades",
-
-            len(closed_df)
-
-        )
-
-        col4.metric(
-
-            "⚖️ Avg Trade",
-
-            round(
-                closed_df["PnL"].mean(),
-                2
-            )
-
-        )
-
-        # ==================================
-        # EXTRA STATS
-        # ==================================
-
-        st.subheader(
-            "📊 Estadísticas"
-        )
-
-        col5, col6 = st.columns(2)
-
-        col5.metric(
-
-            "🏆 Avg Win",
-
-            round(avg_win, 2)
-
-        )
-
-        col6.metric(
-
-            "💥 Avg Loss",
-
-            round(avg_loss, 2)
-
-        )
-
-        # ==================================
-        # TABLA
-        # ==================================
-
-        st.dataframe(
-
-            closed_df,
-
-            use_container_width=True,
-
-            hide_index=True
-
-        )
-
-    else:
-
-        st.info(
-            "No hay trades cerrados"
-        )
+st.caption(
+    "Dashboard Momentum Trading V2 | "
+    "Pre-breakout + Momentum + RR"
+)
