@@ -9,6 +9,14 @@ import streamlit as st
 from datetime import datetime
 
 # ==========================================
+# IA
+# ==========================================
+
+from features.feature_engine import extract_features
+from models.predict import predict_setup
+from database.db_manager import save_setup
+
+# ==========================================
 # CONFIG
 # ==========================================
 
@@ -58,7 +66,7 @@ def descargar_market_data(tickers):
             interval=INTERVAL,
             period=PERIOD,
             group_by="ticker",
-            auto_adjust=True,
+            auto_adjust=False,
             threads=True,
             progress=False
 
@@ -71,6 +79,44 @@ def descargar_market_data(tickers):
         print(e)
 
         return None
+
+# ==========================================
+# DOWNLOAD SPY
+# ==========================================
+
+@st.cache_data(ttl=30)
+def descargar_spy():
+
+    try:
+
+        spy_df = yf.download(
+
+            "SPY",
+
+            interval=INTERVAL,
+
+            period=PERIOD,
+
+            auto_adjust=False,
+
+            progress=False
+
+        )
+
+        if isinstance(spy_df.columns, pd.MultiIndex):
+
+            spy_df.columns = (
+                spy_df.columns
+                .get_level_values(0)
+            )
+
+        return spy_df
+
+    except Exception as e:
+
+        print(f"Error SPY: {e}")
+
+        return pd.DataFrame()
 
 # ==========================================
 # GET DF
@@ -124,7 +170,7 @@ def calcular_atr(df, periodo=14):
 # DETECTOR INTRADAY
 # ==========================================
 
-def detectar_intraday(df, ticker):
+def detectar_intraday(df, ticker, spy_df):
 
     try:
 
@@ -293,6 +339,65 @@ def detectar_intraday(df, ticker):
             )
 
         # ==================================
+        # FEATURES IA
+        # ==================================
+
+        try:
+
+            features = extract_features(
+                df,
+                spy_df
+            )
+
+            ai_score = predict_setup(
+                features
+            )
+
+        except Exception as e:
+
+            print(
+                f"Error IA {ticker}: {e}"
+            )
+
+            features = {}
+
+            ai_score = 0
+
+        # ==================================
+        # GUARDAR DATABASE
+        # ==================================
+
+        try:
+
+            save_setup(
+
+                ticker=ticker,
+
+                strategy="INTRADAY",
+
+                timeframe=INTERVAL,
+
+                technical_score=score,
+
+                ai_score=ai_score,
+
+                features=features,
+
+                entry_price=breakout_trigger,
+
+                stop_loss=stop,
+
+                take_profit=target
+
+            )
+
+        except Exception as e:
+
+            print(
+                f"Error DB {ticker}: {e}"
+            )
+
+        # ==================================
         # RESULTADO
         # ==================================
 
@@ -332,6 +437,9 @@ def detectar_intraday(df, ticker):
             "Score":
                 score,
 
+            "AI Score":
+                ai_score,
+
             "Hora Señal":
                 datetime.now().strftime(
                     "%H:%M"
@@ -356,12 +464,26 @@ def scan_intraday():
 
     tickers = get_market_tickers()
 
+    # ======================================
+    # DESCARGAR DATA
+    # ======================================
+
     data = descargar_market_data(
         tickers
     )
 
     if data is None:
         return pd.DataFrame()
+
+    # ======================================
+    # SPY
+    # ======================================
+
+    spy_df = descargar_spy()
+
+    # ======================================
+    # LOOP
+    # ======================================
 
     for ticker in tickers:
 
@@ -373,14 +495,24 @@ def scan_intraday():
             )
 
             result = detectar_intraday(
+
                 df,
-                ticker
+
+                ticker,
+
+                spy_df
+
             )
 
             if result:
                 resultados.append(result)
 
-        except:
+        except Exception as e:
+
+            print(
+                f"Loop Error {ticker}: {e}"
+            )
+
             continue
 
     if not resultados:
@@ -390,9 +522,16 @@ def scan_intraday():
         resultados
     )
 
+    # ======================================
+    # ORDENAR
+    # ======================================
+
     df_final = df_final.sort_values(
-        by="Score",
+
+        by=["AI Score", "Score"],
+
         ascending=False
+
     )
 
     return df_final.head(15)

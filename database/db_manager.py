@@ -147,3 +147,30 @@ def get_all_setups():
     conn.close()
 
     return rows
+
+def update_result(setup_id, result):
+
+    conn = get_connection()
+
+    cursor = conn.cursor()
+
+    cursor.execute("""
+
+    UPDATE setups
+
+    SET result = ?
+
+    WHERE id = ?
+
+    """, (
+
+        result,
+        setup_id
+
+    ))
+
+    conn.commit()
+
+    conn.close()
+
+    print(f"✅ Resultado actualizado: {setup_id}")

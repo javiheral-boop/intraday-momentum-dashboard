@@ -7,3 +7,9 @@ streamlit-autorefresh
 requests
 lxml
 html5lib
+streamlit
+xgboost
+scikit-learn
+joblib
+ta
+yfinance
